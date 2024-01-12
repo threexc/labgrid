@@ -34,6 +34,7 @@ dependencies = [
     "ansicolors>=1.1.8",
     "attrs>=21.4.0",
     "autobahn>=21.3.1",
+    "gpiod>=2.2.0",
     "jinja2>=3.0.2",
     "pexpect>=4.8.0",
     "pyserial-labgrid>=3.4.0.1",

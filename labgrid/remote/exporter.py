@@ -613,7 +613,7 @@ exports["SNMPEthernetPort"] = EthernetPortExport
 class GPIOSysFSExport(ResourceExport):
     _gpio_sysfs_path_prefix = "/sys/class/gpio"
 
-    """ResourceExport for GPIO lines accessed directly from userspace"""
+    """ResourceExport for GPIO lines accessed directly from userspace with sysfs"""
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -668,6 +668,32 @@ class GPIOSysFSExport(ResourceExport):
 exports["SysfsGPIO"] = GPIOSysFSExport
 exports["MatchedSysfsGPIO"] = GPIOSysFSExport
 
+@attr.s(eq=False)
+class GPIOGpiodExport(ResourceExport):
+    _gpiod_path_prefix = '/dev'
+
+    """ResourceExport for GPIO lines accessed directly from userspace with GPIOd"""
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        local_cls_name = self.cls
+        self.data['cls'] = f"Network{self.cls}"
+        from ..resource import base
+        local_cls = getattr(base, local_cls_name)
+        self.local = local_cls(target=None, name=None, **self.local_params)
+        self.export_path = Path(GPIOGpiodExport._gpiod_path_prefix,
+                                f'gpiochip{self.local.line_offset}')
+        self.system_exported = False
+
+    def _get_params(self):
+        """Helper function to return parameters"""
+        return {
+            'host': self.host,
+            'line_offset': self.local.line_offset,
+            'gpiochip': self.local.gpiochip,
+        }
+
+exports["GpiodGPIO"] = GPIOGpiodExport
 
 @attr.s
 class NetworkServiceExport(ResourceExport):

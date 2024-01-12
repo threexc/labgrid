@@ -8,7 +8,7 @@ import attr
 
 from ..factory import target_factory
 from .common import ManagedResource, ResourceManager
-from .base import SerialPort, NetworkInterface
+from .base import SerialPort, NetworkInterface, GpiodGPIO
 from ..util import Timeout
 
 
@@ -226,6 +226,25 @@ class USBResource(ManagedResource):
                 return f.read().rstrip(b'\n') # drop trailing newlines
 
         return None
+
+@target_factory.reg_resource
+@attr.s(eq=False)
+class GpiodInterface(USBResource, GpiodGPIO):
+    def __attrs_post_init__(self):
+        self.match['SUBSYSTEM'] = 'gpio'
+        if self.gpiochip:
+            warnings.warn(
+                "USBGPIODigitalOutput: The gpiochip attribute will be overwritten by udev.\n"
+                "Please use udev matching as described in http://labgrid.readthedocs.io/en/latest/configuration.html#udev-matching"  # pylint: disable=line-too-long
+            )
+        super().__attrs_post_init__()
+
+    def update(self):
+        super().update()
+        if self.device is not None:
+            self.gpiochip = self.device.device_node
+        else:
+            self.gpiochip = None
 
 
 @target_factory.reg_resource
