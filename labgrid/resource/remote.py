@@ -339,6 +339,17 @@ class NetworkSysfsGPIO(NetworkResource, ManagedResource):
         self.timeout = 10.0
         super().__attrs_post_init__()
 
+@target_factory.reg_resource
+@attr.s(eq=False)
+class NetworkGpiodGPIO(NetworkResource, ManagedResource):
+    manager_cls = RemotePlaceManager
+
+    """The NetworkgpiodGPIO describes a remotely accessible gpio line"""
+    index = attr.ib(validator=attr.validators.optional(attr.validators.instance_of(int)))
+    def __attrs_post_init__(self):
+        self.timeout = 10.0
+
+
 @attr.s(eq=False)
 class NetworkLXAIOBusNode(ManagedResource):
     manager_cls = RemotePlaceManager
