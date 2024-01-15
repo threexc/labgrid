@@ -573,7 +573,7 @@ exports["SNMPEthernetPort"] = EthernetPortExport
 class GPIOSysFSExport(ResourceExport):
     _gpio_sysfs_path_prefix = '/sys/class/gpio'
 
-    """ResourceExport for GPIO lines accessed directly from userspace"""
+    """ResourceExport for GPIO lines accessed directly from userspace with sysfs"""
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
@@ -623,6 +623,55 @@ class GPIOSysFSExport(ResourceExport):
 
 exports["SysfsGPIO"] = GPIOSysFSExport
 
+@attr.s(eq=False)
+class GPIOGpiodExport(ResourceExport):
+    _gpiod_path_prefix = '/dev'
+
+    """ResourceExport for GPIO lines accessed directly from userspace with GPIOd"""
+
+    def __attrs_post_init__(self):
+        super().__attrs_post_init__()
+        local_cls_name = self.cls
+        self.data['cls'] = f"Network{self.cls}"
+        from ..resource import base
+        local_cls = getattr(base, local_cls_name)
+        self.local = local_cls(target=None, name=None, **self.local_params)
+        self.export_path = Path(GPIOGpiodExport._gpiod_path_prefix,
+                                f'gpio{self.local.index}')
+        self.system_exported = False
+
+    def _get_params(self):
+        """Helper function to return parameters"""
+        return {
+            'host': self.host,
+            'index': self.local.index,
+        }
+
+    def _get_start_params(self):
+        return {
+            'index': self.local.index,
+        }
+
+    def _start(self, start_params):
+        """Start a GPIO export to userspace"""
+        index = start_params['index']
+
+        if self.export_path.exists():
+            self.system_exported = True
+            return
+
+        export_gpiod_path = GPIOGpiodExport._gpiod_path_prefix
+
+    def _stop(self, start_params):
+        """Disable a GPIO export to userspace"""
+        index = start_params['index']
+
+        if self.system_exported:
+            return
+
+        export_gpiod_path = GPIOSysFSExport._gpiod_path_prefix
+
+exports["GpiodGPIO"] = GPIOGpiodExport
 
 @attr.s
 class NetworkServiceExport(ResourceExport):
