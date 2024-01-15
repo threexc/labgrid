@@ -348,7 +348,7 @@ class NetworkGpiodGPIO(NetworkResource, ManagedResource):
     index = attr.ib(validator=attr.validators.optional(attr.validators.instance_of(int)))
     def __attrs_post_init__(self):
         self.timeout = 10.0
-
+        super().__attrs_post_init__()
 
 @attr.s(eq=False)
 class NetworkLXAIOBusNode(ManagedResource):
