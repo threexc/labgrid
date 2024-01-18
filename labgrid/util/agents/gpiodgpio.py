@@ -35,7 +35,7 @@ class GpiodDigitalOutput:
         value = self.line.get_value()
         if value == 0:
             return False
-        else if value == 1:
+        elif value == 1:
             return True
         else:
             ValueError("GPIO value is out of range.")
