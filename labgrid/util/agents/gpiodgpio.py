@@ -23,7 +23,7 @@ class GpiodDigitalOutput:
         self._logger.debug("Configuring GPIO %s line %d as output.", gpiochip, index)
         chip = gpiod.chip(gpiochip, gpiod.chip.OPEN_BY_PATH)
         cfg = gpiod.line_request()
-        cfg.consumer = "labgrib"
+        cfg.consumer = "labgrid"
         cfg.request_type = gpiod.line_request.DIRECTION_OUTPUT
         self.line = chip.get_line(index)
         self.line.request(cfg)
