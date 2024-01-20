@@ -52,7 +52,7 @@ class GpiodGPIO(Resource):
     """The basic GpiodGPIO contains an index
 
     Args:
-        gpiochip (str): gpiochip path
+        gpiochip (int): gpiochip number, e.g. '0' in gpiochip0
         index (int): index of target gpio line on the gpiochip."""
-    gpiochip = attr.ib(default=None)
+    gpiochip = attr.ib(default=None, validator=attr.validators.instance_of(int))
     index = attr.ib(default=None, validator=attr.validators.instance_of(int))
