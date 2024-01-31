@@ -725,7 +725,7 @@ class ClientSession(ApplicationSession):
         name = self.args.name
         target = self._get_target(place)
         from ..resource.power import NetworkPowerPort, PDUDaemonPort
-        from ..resource.remote import NetworkUSBPowerPort, NetworkSiSPMPowerPort
+        from ..resource.remote import NetworkUSBPowerPort, NetworkSiSPMPowerPort, NetworkSysfsGPIO
         from ..resource import TasmotaPowerPort, NetworkYKUSHPowerPort
 
         drv = None
@@ -747,6 +747,9 @@ class ClientSession(ApplicationSession):
                     drv = self._get_driver_or_new(target, "TasmotaPowerDriver", name=name)
                 elif isinstance(resource, NetworkYKUSHPowerPort):
                     drv = self._get_driver_or_new(target, "YKUSHPowerDriver", name=name)
+                elif isinstance(resource, NetworkGpiodGPIO) or isinstance(resource, NetworkSysfsGPIO):
+                    d = self._get_driver_or_new(target, "GpioDigitalOutputDriver", name=name)
+                    drv = self._get_driver_or_new(target, "DigitalOutputPowerDriver", name=d.name)
                 if drv:
                     break
 
