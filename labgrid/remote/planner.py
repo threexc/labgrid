@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 try:
     import yaml
 except ImportError:
-    print("PyYAML is required for the planner command. Install with: pip install PyYAML")
+    print("PyYAML is required for the plan command. Install with: pip install PyYAML")
     sys.exit(1)
 
 try:
@@ -18,7 +18,7 @@ try:
     from rich.table import Table
     from rich import print as rprint
 except ImportError:
-    print("Rich is required for the planner command. Install with: pip install rich")
+    print("Rich is required for the plan command. Install with: pip install rich")
     sys.exit(1)
 
 # Labgrid resource definitions based on actual labgrid resources
@@ -238,7 +238,7 @@ def save_config(config: Dict[str, Any], filepath: str) -> None:
 def prompt_for_match_criteria() -> Dict[str, str]:
     """Prompt user for device matching criteria"""
     match_dict = {}
-    console.print("\n[cyan]Device matching criteria (press Enter with empty value to finish):[/cyan]")
+    console.print("\n[cyan]Device matching criteria:[/cyan]")
     
     common_keys = [
         "@SUBSYSTEM", "@ID_SERIAL_SHORT", "@ID_VENDOR_ID", "@ID_MODEL_ID", 
@@ -247,15 +247,20 @@ def prompt_for_match_criteria() -> Dict[str, str]:
     
     console.print("[dim]Common matching keys: " + ", ".join(common_keys) + "[/dim]")
     console.print("[dim]Example: @SUBSYSTEM=usb, @ID_SERIAL_SHORT=ABC123[/dim]")
+    console.print("[dim]Press Enter with empty key to finish[/dim]")
     
     while True:
         key = Prompt.ask("Match key (e.g., @SUBSYSTEM)", default="")
-        if not key:
+        if not key.strip():  # If empty or just whitespace
             break
             
         value = Prompt.ask(f"Value for {key}")
-        if value:
+        if value.strip():  # Only add if value is not empty
             match_dict[key] = value
+        
+        # Ask if they want to add another match criterion
+        if not Confirm.ask("Add another match criterion?", default=False):
+            break
     
     return match_dict
 
@@ -281,7 +286,38 @@ def prompt_for_property_value(prop_name: str, prop_info: Dict[str, Any]) -> Any:
         return Prompt.ask(prompt_text)
 
 def select_resource_class() -> Optional[str]:
-    """Allow user to select a resource class"""
+    """Allow user to select a single resource class (for edit mode)"""
+    classes = get_resource_classes()
+    
+    # Display available classes in a table
+    table = Table(title="Available Labgrid Resource Classes")
+    table.add_column("Index", style="cyan")
+    table.add_column("Class Name", style="green")
+    table.add_column("Description", style="dim")
+    
+    for i, cls in enumerate(classes, 1):
+        description = get_resource_description(cls)
+        table.add_row(str(i), cls, description)
+    
+    console.print(table)
+    
+    while True:
+        try:
+            choice = Prompt.ask("\nSelect resource class by number")
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(classes):
+                    return classes[idx]
+            console.print("[red]Invalid selection. Please enter a valid number.[/red]")
+        except KeyboardInterrupt:
+            return None
+
+def configure_resource() -> Dict[str, Any]:
+    """Configure a single resource (legacy function for compatibility)"""
+    return select_and_configure_single_resource()
+
+def select_resource_types() -> List[str]:
+    """Multi-select interface for choosing resource types to configure"""
     classes = get_resource_classes()
     
     # Group classes by category for better organization
@@ -302,45 +338,33 @@ def select_resource_class() -> Optional[str]:
     all_categorized = sum(categories.values(), [])
     categories["Other"] = [c for c in classes if c not in all_categorized]
     
-    # Display classes by category
-    table = Table(title="Available Labgrid Resource Classes")
-    table.add_column("Index", style="cyan", width=5)
-    table.add_column("Category", style="yellow", width=15)
-    table.add_column("Class Name", style="green", width=25)
-    table.add_column("Description", style="dim")
+    console.print("\n[bold cyan]Resource Type Selection Menu[/bold cyan]")
+    console.print("[dim]Select the types of resources you want to configure for this environment[/dim]\n")
     
-    index = 1
-    class_map = {}
+    selected_resources = []
     
     for category, class_list in categories.items():
         if not class_list:
             continue
-        for cls in class_list:
-            description = get_resource_description(cls)
-            table.add_row(str(index), category, cls, description)
-            class_map[index] = cls
-            index += 1
+            
+        console.print(f"\n[yellow]── {category} Resources ──[/yellow]")
+        
+        for resource_class in class_list:
+            description = get_resource_description(resource_class)
+            
+            # Show resource info
+            console.print(f"\n[green]{resource_class}[/green]")
+            console.print(f"[dim]  {description}[/dim]")
+            
+            # Ask if user wants this resource type
+            if Confirm.ask(f"  Include {resource_class}?", default=False):
+                selected_resources.append(resource_class)
     
-    console.print(table)
-    
-    while True:
-        try:
-            choice = Prompt.ask(f"\nSelect resource class by number (1-{len(class_map)})")
-            if choice.isdigit():
-                idx = int(choice)
-                if idx in class_map:
-                    return class_map[idx]
-            console.print("[red]Invalid selection. Please enter a valid number.[/red]")
-        except KeyboardInterrupt:
-            return None
+    return selected_resources
 
-def configure_resource() -> Dict[str, Any]:
-    """Configure a single resource"""
-    resource_class = select_resource_class()
-    if not resource_class:
-        return {}
-    
-    console.print(f"\n[green]Configuring {resource_class}[/green]")
+def configure_resource_instance(resource_class: str, instance_num: int) -> Dict[str, Any]:
+    """Configure a single instance of a resource type"""
+    console.print(f"\n[green]Configuring {resource_class} #{instance_num}[/green]")
     console.print(f"[dim]{get_resource_description(resource_class)}[/dim]")
     
     properties = get_resource_properties(resource_class)
@@ -351,7 +375,7 @@ def configure_resource() -> Dict[str, Any]:
         return resource_config
     
     # Show available properties
-    console.print(f"\n[cyan]Available properties for {resource_class}:[/cyan]")
+    console.print(f"\n[cyan]Properties for {resource_class}:[/cyan]")
     for prop_name, prop_info in properties.items():
         required = prop_info.get("required", False)
         description = prop_info.get("description", "")
@@ -369,25 +393,69 @@ def configure_resource() -> Dict[str, Any]:
     
     return resource_config
 
-def add_resources_to_target(config: Dict[str, Any], target_name: str) -> None:
+def add_resources_to_target(config: Dict[str, Any], target_name: str, is_new_config: bool = False) -> None:
     """Add resources to a target configuration"""
     if target_name not in config:
         config[target_name] = {}
     
     target_config = config[target_name]
     
-    while True:
-        if not Confirm.ask("\nAdd a new resource?", default=True):
-            break
+    if is_new_config:
+        # For new configs, use the menuconfig-style selection
+        selected_resource_types = select_resource_types()
         
-        resource_label = Prompt.ask("Resource label (e.g., power-gpio, debug-serial)")
-        if not resource_label:
-            continue
+        if not selected_resource_types:
+            console.print("[yellow]No resource types selected.[/yellow]")
+            return
+        
+        console.print(f"\n[bold green]Selected resource types:[/bold green]")
+        for resource_type in selected_resource_types:
+            console.print(f"  • {resource_type}")
+        
+        # Configure each selected resource type
+        for resource_class in selected_resource_types:
+            console.print(f"\n[bold blue]═══ Configuring {resource_class} instances ═══[/bold blue]")
             
-        resource_config = configure_resource()
-        if resource_config:
-            target_config[resource_label] = resource_config
-            console.print(f"[green]Added resource '{resource_label}'[/green]")
+            instance_count = 1
+            while True:
+                # Configure this instance
+                resource_config = configure_resource_instance(resource_class, instance_count)
+                
+                if resource_config:
+                    # Generate a default label or ask for one
+                    default_label = f"{resource_class.lower().replace('matched', '').replace('usb', '').replace('sysfs', '')}-{instance_count}"
+                    resource_label = Prompt.ask(f"Label for this {resource_class}", default=default_label)
+                    
+                    target_config[resource_label] = resource_config
+                    console.print(f"[green]Added '{resource_label}' ({resource_class})[/green]")
+                
+                # Ask if they want another instance of this resource type
+                if not Confirm.ask(f"\nAdd another {resource_class} instance?", default=False):
+                    break
+                
+                instance_count += 1
+    else:
+        # For editing existing configs, use the old interface
+        while True:
+            if not Confirm.ask("\nAdd a new resource?", default=True):
+                break
+            
+            resource_label = Prompt.ask("Resource label (e.g., power-gpio, debug-serial)")
+            if not resource_label:
+                continue
+                
+            resource_config = select_and_configure_single_resource()
+            if resource_config:
+                target_config[resource_label] = resource_config
+                console.print(f"[green]Added resource '{resource_label}'[/green]")
+
+def select_and_configure_single_resource() -> Dict[str, Any]:
+    """Select and configure a single resource (for edit mode)"""
+    resource_class = select_resource_class()
+    if not resource_class:
+        return {}
+    
+    return configure_resource_instance(resource_class, 1)
 
 def planner_main(args: argparse.Namespace) -> int:
     """Main function for the planner command"""
@@ -427,7 +495,8 @@ def planner_main(args: argparse.Namespace) -> int:
             yaml_config[target_name]['location'] = location
         
         # Add resources
-        add_resources_to_target(yaml_config, target_name)
+        is_new_config = not args.edit and not config_path.exists()
+        add_resources_to_target(yaml_config, target_name, is_new_config)
         
         # Save configuration
         save_config(yaml_config, args.config)
