@@ -44,6 +44,7 @@ dependencies = [
     "pyudev>=0.22.0",
     "pyusb>=1.2.1",
     "PyYAML>=6.0.1",
+    "rich>=13.0.0",
     "requests>=2.26.0",
     "xmodem>=0.4.6",
 ]
@@ -98,6 +99,7 @@ dev = [
 labgrid-autoinstall = "labgrid.autoinstall.main:main"
 labgrid-client = "labgrid.remote.client:main"
 labgrid-exporter = "labgrid.remote.exporter:main"
+labgrid-planner = "labgrid.remote.planner:main"
 labgrid-suggest = "labgrid.resource.suggest:main"
 labgrid-coordinator = "labgrid.remote.coordinator:main"
 
