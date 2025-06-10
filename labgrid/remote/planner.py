@@ -462,15 +462,15 @@ def planner_main(args: argparse.Namespace) -> int:
     console.print("[bold blue]Labgrid Environment Planner[/bold blue]")
     console.print("[dim]Interactive tool to create labgrid environment configurations[/dim]\n")
     
-    config_path = Path(args.config)
+    config_path = Path(args.config_file)
     
     # Load existing config if editing or file exists
     if args.edit or config_path.exists():
         if config_path.exists():
-            console.print(f"[yellow]Loading existing configuration from {args.config}[/yellow]")
-            yaml_config = load_existing_config(args.config)
+            console.print(f"[yellow]Loading existing configuration from {args.config_file}[/yellow]")
+            yaml_config = load_existing_config(args.config_file)
         else:
-            console.print(f"[red]Configuration file {args.config} not found[/red]")
+            console.print(f"[red]Configuration file {args.config_file} not found[/red]")
             yaml_config = {}
     else:
         yaml_config = {}
@@ -499,14 +499,14 @@ def planner_main(args: argparse.Namespace) -> int:
         add_resources_to_target(yaml_config, target_name, is_new_config)
         
         # Save configuration
-        save_config(yaml_config, args.config)
+        save_config(yaml_config, args.config_file)
         
         # Show final configuration
         console.print(f"\n[bold green]Final configuration:[/bold green]")
         console.print(yaml.dump(yaml_config, default_flow_style=False, indent=2))
         
         console.print(f"\n[bold cyan]Next steps:[/bold cyan]")
-        console.print(f"1. Review the generated configuration: {args.config}")
+        console.print(f"1. Review the generated configuration: {args.config_file}")
         console.print("2. Add any additional manual configuration as needed")
         console.print("3. Use with labgrid: labgrid-client -c <config> ...")
         
@@ -528,9 +528,16 @@ def add_planner_subcommand(subparsers):
     )
     
     parser.add_argument(
-        '--config', '-c',
+        'config_file',
+        nargs='?',
         default='environment.yaml',
         help='Configuration file path (default: environment.yaml)'
+    )
+    
+    parser.add_argument(
+        '--config', '-c',
+        dest='config_file',
+        help='Configuration file path (alternative to positional argument)'
     )
     
     parser.add_argument(
@@ -550,9 +557,16 @@ def main():
     )
     
     parser.add_argument(
-        '--config', '-c',
+        'config_file',
+        nargs='?',
         default='environment.yaml',
         help='Configuration file path (default: environment.yaml)'
+    )
+    
+    parser.add_argument(
+        '--config', '-c',
+        dest='config_file',
+        help='Configuration file path (alternative to positional argument)'
     )
     
     parser.add_argument(
