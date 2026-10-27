@@ -975,6 +975,14 @@ class ClientSession:
         delay = self.args.delay
         name = self.args.name
         target = self._get_target(place)
+        drv = self._get_power_driver(target, name)
+        if delay is not None:
+            drv.delay = delay
+        res = getattr(drv, action)()
+        if action == "get":
+            print(f"power{' ' + name if name else ''} for place {place.name} is {'on' if res else 'off'}")
+
+    def _get_power_driver(self, target, name=None):
         from ..resource.power import NetworkPowerPort, PDUDaemonPort
         from ..resource.remote import NetworkUSBPowerPort, NetworkSiSPMPowerPort, NetworkSysfsGPIO
         from ..resource import TasmotaPowerPort, NetworkYKUSHPowerPort
@@ -1006,11 +1014,7 @@ class ClientSession:
 
         if not drv:
             raise UserError("target has no compatible resource available")
-        if delay is not None:
-            drv.delay = delay
-        res = getattr(drv, action)()
-        if action == "get":
-            print(f"power{' ' + name if name else ''} for place {place.name} is {'on' if res else 'off'}")
+        return drv
 
     def digital_io(self):
         place = self.get_acquired_place()
