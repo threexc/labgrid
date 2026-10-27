@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import contextlib
 import enum
+import fcntl
 import os
 import pathlib
 import subprocess
@@ -13,6 +14,8 @@ import logging
 import signal
 import sys
 import shlex
+import termios
+import tty
 import shutil
 import json
 import itertools
@@ -1157,31 +1160,91 @@ class ClientSession:
                 self.logger.warning("--logfile option not supported by telnet, ignoring")
 
         print(f"connecting to {resource} calling {' '.join(call)}")
-        try:
-            p = await asyncio.create_subprocess_exec(*call)
-        except FileNotFoundError as e:
-            raise ServerError(f"failed to execute remote console command: {e}")
-        while p.returncode is None:
+        if not listen_only and sys.stdin.isatty():
+            ctx = self._console_pty()
+        else:
+            ctx = contextlib.nullcontext({})
+        with ctx as spawn_kwargs:
             try:
-                await asyncio.wait_for(p.wait(), 1.0)
-            except asyncio.TimeoutError:
-                # subprocess is still running
-                pass
-
-            try:
-                self._check_allowed(place)
-            except UserError:
-                p.terminate()
+                p = await asyncio.create_subprocess_exec(*call, **spawn_kwargs)
+            except FileNotFoundError as e:
+                raise ServerError(f"failed to execute remote console command: {e}")
+            while p.returncode is None:
                 try:
                     await asyncio.wait_for(p.wait(), 1.0)
                 except asyncio.TimeoutError:
-                    # try harder
-                    p.kill()
-                    await asyncio.wait_for(p.wait(), 1.0)
-                raise
+                    # subprocess is still running
+                    pass
+
+                try:
+                    self._check_allowed(place)
+                except UserError:
+                    p.terminate()
+                    try:
+                        await asyncio.wait_for(p.wait(), 1.0)
+                    except asyncio.TimeoutError:
+                        # try harder
+                        p.kill()
+                        await asyncio.wait_for(p.wait(), 1.0)
+                    raise
         if p.returncode:
             print("connection lost", file=sys.stderr)
         return p.returncode
+
+    @contextlib.contextmanager
+    def _console_pty(self):
+        """Run the console program on a pty, forwarding the local terminal to it."""
+        loop = asyncio.get_running_loop()
+        stdin, stdout = sys.stdin.fileno(), sys.stdout.fileno()
+        master, slave = os.openpty()
+        os.set_blocking(master, False)
+
+        def resize():
+            fcntl.ioctl(master, termios.TIOCSWINSZ, fcntl.ioctl(stdin, termios.TIOCGWINSZ, b"\0" * 8))
+
+        def from_stdin():
+            data = os.read(stdin, 1024)
+            if not data:
+                loop.remove_reader(stdin)
+                return
+            os.write(master, data)
+
+        def from_master():
+            try:
+                data = os.read(master, 4096)
+            except (BlockingIOError, OSError):
+                data = b""
+            if not data:
+                loop.remove_reader(master)
+                return
+            os.write(stdout, data)
+
+        def child_setup():
+            # make the pty the controlling terminal, so it delivers signals and SIGWINCH
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+        old_attrs = termios.tcgetattr(stdin)
+        try:
+            resize()
+            tty.setraw(stdin)
+            loop.add_signal_handler(signal.SIGWINCH, resize)
+            loop.add_reader(stdin, from_stdin)
+            loop.add_reader(master, from_master)
+            yield {
+                "stdin": slave,
+                "stdout": slave,
+                "stderr": slave,
+                "start_new_session": True,
+                "preexec_fn": child_setup,
+            }
+        finally:
+            loop.remove_reader(stdin)
+            from_master()  # flush the console program's last output
+            loop.remove_reader(master)
+            loop.remove_signal_handler(signal.SIGWINCH)
+            termios.tcsetattr(stdin, termios.TCSAFLUSH, old_attrs)
+            os.close(slave)
+            os.close(master)
 
     async def console(self, place, target):
         while True:

@@ -1,3 +1,8 @@
+import sys
+import textwrap
+
+import pexpect
+
 from labgrid.remote.client import ConsoleEscape
 
 
@@ -10,3 +15,31 @@ def test_console_escape_feed():
     # prefix split across reads
     assert esc.feed(b"x\x14") == (b"x", [])
     assert esc.feed(b"c") == (b"", ["cycle"])
+
+
+SCRIPT = textwrap.dedent("""
+    import asyncio
+    from labgrid.remote.client import ClientSession
+
+    class Session:
+        _console_pty = ClientSession._console_pty
+
+    async def main():
+        with Session()._console_pty() as kwargs:
+            p = await asyncio.create_subprocess_exec("cat", **kwargs)
+            print("ready", flush=True)
+            await p.wait()
+
+    asyncio.run(main())
+""")
+
+
+def test_console_pty():
+    with pexpect.spawn(sys.executable, ["-c", SCRIPT], timeout=10) as spawn:
+        spawn.expect("ready")
+        spawn.send("hello\r")
+        spawn.expect("hello")
+        # EOF through the pty ends cat
+        spawn.send("\x04")
+        spawn.expect(pexpect.EOF)
+    assert spawn.exitstatus == 0
