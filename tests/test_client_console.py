@@ -21,11 +21,20 @@ SCRIPT = textwrap.dedent("""
     import asyncio
     from labgrid.remote.client import ClientSession
 
+    class Power:
+        state = False
+        def on(self): self.state = True
+        def off(self): self.state = False
+        def cycle(self): self.state = True
+        def get(self): return self.state
+
     class Session:
         _console_pty = ClientSession._console_pty
+        def _get_power_driver(self, target, name=None):
+            return Power()
 
     async def main():
-        with Session()._console_pty() as kwargs:
+        with Session()._console_pty(None) as kwargs:
             p = await asyncio.create_subprocess_exec("cat", **kwargs)
             print("ready", flush=True)
             await p.wait()
@@ -34,11 +43,19 @@ SCRIPT = textwrap.dedent("""
 """)
 
 
-def test_console_pty():
+def test_console_pty_power_keys():
     with pexpect.spawn(sys.executable, ["-c", SCRIPT], timeout=10) as spawn:
         spawn.expect("ready")
         spawn.send("hello\r")
         spawn.expect("hello")
+        spawn.send("\x14g")
+        spawn.expect(r"\[labgrid\] power is off")
+        spawn.send("\x14o")
+        spawn.expect(r"\[labgrid\] power on done")
+        spawn.send("\x14g")
+        spawn.expect(r"\[labgrid\] power is on")
+        spawn.send("\x14h")
+        spawn.expect(r"\[labgrid\] Ctrl-T then")
         # EOF through the pty ends cat
         spawn.send("\x04")
         spawn.expect(pexpect.EOF)

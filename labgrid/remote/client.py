@@ -1161,7 +1161,8 @@ class ClientSession:
 
         print(f"connecting to {resource} calling {' '.join(call)}")
         if not listen_only and sys.stdin.isatty():
-            ctx = self._console_pty()
+            print(f"power control: {ConsoleEscape.HELP}")
+            ctx = self._console_pty(target)
         else:
             ctx = contextlib.nullcontext({})
         with ctx as spawn_kwargs:
@@ -1192,22 +1193,63 @@ class ClientSession:
         return p.returncode
 
     @contextlib.contextmanager
-    def _console_pty(self):
-        """Run the console program on a pty, forwarding the local terminal to it."""
+    def _console_pty(self, target):
+        """Run the console program on a pty, forwarding the local terminal to it
+        while intercepting the power control keys (see ConsoleEscape)."""
         loop = asyncio.get_running_loop()
         stdin, stdout = sys.stdin.fileno(), sys.stdout.fileno()
         master, slave = os.openpty()
         os.set_blocking(master, False)
+        escape = ConsoleEscape()
+        drv = None
+        busy = False
+
+        def say(msg):
+            os.write(stdout, f"\r\n[labgrid] {msg}\r\n".encode())
 
         def resize():
             fcntl.ioctl(master, termios.TIOCSWINSZ, fcntl.ioctl(stdin, termios.TIOCGWINSZ, b"\0" * 8))
+
+        def power_done(action, fut):
+            nonlocal busy
+            busy = False
+            if fut.exception():
+                say(f"power {action} failed: {fut.exception()}")
+            elif action == "get":
+                say(f"power is {'on' if fut.result() else 'off'}")
+            else:
+                say(f"power {action} done")
+
+        def power(action):
+            nonlocal drv, busy
+            if action == "help":
+                say(ConsoleEscape.HELP)
+                return
+            if busy:
+                say("power action already running")
+                return
+            try:
+                drv = drv or self._get_power_driver(target)
+            except Exception as e:  # pylint: disable=broad-except
+                say(f"power control unavailable: {e}")
+                return
+            busy = True
+            if action != "get":
+                say(f"power {action}...")
+            # driver calls block (e.g. the cycle delay), keep the console running meanwhile
+            fut = loop.run_in_executor(None, getattr(drv, action))
+            fut.add_done_callback(lambda f: power_done(action, f))
 
         def from_stdin():
             data = os.read(stdin, 1024)
             if not data:
                 loop.remove_reader(stdin)
                 return
-            os.write(master, data)
+            data, actions = escape.feed(data)
+            if data:
+                os.write(master, data)
+            for action in actions:
+                power(action)
 
         def from_master():
             try:

@@ -133,6 +133,11 @@ Open a console to the acquired place:
 
    $ labgrid-client -p <placename> console
 
+While the console is open, the place's power can be controlled by pressing
+``Ctrl-T`` followed by ``o`` (on), ``f`` (off), ``c`` (cycle) or ``g`` (get).
+``Ctrl-T Ctrl-T`` sends a literal ``Ctrl-T`` to the target.
+This is not available with ``--listenonly`` or when stdin is not a terminal.
+
 Add all resources with the group "example-group" to the place example-place:
 
 .. code-block:: bash
