@@ -106,6 +106,37 @@ def _get_reservation_id_from_env():
     return legacy_reservation_id
 
 
+class ConsoleEscape:
+    """Splits console input into data for the target and power actions.
+
+    Ctrl-T followed by o/f/c/g requests power on/off/cycle/get, Ctrl-T Ctrl-T
+    sends a literal Ctrl-T, any other key after Ctrl-T requests help.
+    """
+
+    PREFIX = 0x14
+    ACTIONS = {ord("o"): "on", ord("f"): "off", ord("c"): "cycle", ord("g"): "get"}
+    HELP = "Ctrl-T then o=on f=off c=cycle g=get, Ctrl-T Ctrl-T sends Ctrl-T"
+
+    def __init__(self):
+        self.pending = False
+
+    def feed(self, data):
+        out = bytearray()
+        actions = []
+        for b in data:
+            if self.pending:
+                self.pending = False
+                if b == self.PREFIX:
+                    out.append(b)
+                else:
+                    actions.append(self.ACTIONS.get(b, "help"))
+            elif b == self.PREFIX:
+                self.pending = True
+            else:
+                out.append(b)
+        return bytes(out), actions
+
+
 @attr.s(eq=False)
 class ClientSession:
     """The ClientSession encapsulates all the actions a Client can invoke on
