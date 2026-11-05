@@ -133,6 +133,18 @@ Open a console to the acquired place:
 
    $ labgrid-client -p <placename> console
 
+While the console is open, ``Ctrl-T`` opens a ``labgrid>`` command prompt.
+This means holding ``Ctrl`` and pressing the ``t`` key, ``Shift`` is not
+needed.
+``Tab`` completes a command or lists the matching ones, ``Enter`` runs it and
+``q`` (followed by ``Enter``) or ``Ctrl-C`` leaves the prompt.
+Console output is held back while the prompt is open.
+The available commands are ``power on``, ``power off``, ``power cycle`` and
+``power get`` (equivalent to the ``power`` command), ``help`` and ``q``.
+``Ctrl-T Ctrl-T`` sends a literal ``Ctrl-T`` to the target.
+The prompt is not available with ``--listenonly`` or when stdin is not a
+terminal.
+
 Add all resources with the group "example-group" to the place example-place:
 
 .. code-block:: bash

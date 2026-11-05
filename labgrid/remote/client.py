@@ -1202,7 +1202,8 @@ class ClientSession:
 
         print(f"connecting to {resource} calling {' '.join(call)}")
         if not listen_only and sys.stdin.isatty():
-            ctx = self._console_pty(call)
+            print("press Ctrl-T (Ctrl and t, no Shift) for the labgrid command prompt (Tab lists commands, q leaves)")
+            ctx = self._console_pty(target, call)
         else:
             ctx = contextlib.nullcontext((call, {}))
         with ctx as (call, spawn_kwargs):
@@ -1232,12 +1233,36 @@ class ClientSession:
             print("connection lost", file=sys.stderr)
         return p.returncode
 
+    def _console_commands(self, target):
+        """Return the commands available from the console command prompt, as
+        {name: (help, func)}. func is called without arguments in a worker
+        thread and may return a message to show."""
+
+        def power(action):
+            def run():
+                res = getattr(self._get_power_driver(target), action)()
+                if action == "get":
+                    return f"power is {'on' if res else 'off'}"
+                return None
+
+            return run
+
+        return {
+            "power on": ("switch power on", power("on")),
+            "power off": ("switch power off", power("off")),
+            "power cycle": ("switch power off and on again", power("cycle")),
+            "power get": ("show the power state", power("get")),
+        }
+
     @contextlib.contextmanager
-    def _console_pty(self, call):
+    def _console_pty(self, target, call):
         """Run the console program on a pty, forwarding the local terminal to it.
 
         Yields the command line and keyword arguments to start the console
         program with.
+
+        Ctrl-T opens a command prompt (see ConsolePrompt) for the commands
+        from _console_commands(). Console output is held back while it is open.
         """
         if shutil.which(call[0]) is None:
             raise ServerError(f"failed to execute remote console command: {call[0]} not found")
@@ -1245,24 +1270,100 @@ class ClientSession:
         stdin, stdout = sys.stdin.fileno(), sys.stdout.fileno()
         master, slave = os.openpty()
         os.set_blocking(master, False)
+        commands = self._console_commands(target)
+        prompt = ConsolePrompt([*commands, "help", "q"])
+        prompting = False
+        held = bytearray()
+        held_limit = 1024 * 1024
+        dropped = False
+        busy = False
+
+        def say(msg):
+            msg = f"\r\n[labgrid] {msg}\r\n".encode()
+            if prompting:
+                held.extend(msg)
+            else:
+                os.write(stdout, msg)
 
         def resize():
             fcntl.ioctl(master, termios.TIOCSWINSZ, fcntl.ioctl(stdin, termios.TIOCGWINSZ, b"\0" * 8))
 
+        def leave_prompt():
+            nonlocal prompting, dropped
+            prompting = False
+            os.write(stdout, held)
+            held.clear()
+            if dropped:
+                say("some console output was dropped while the prompt was open")
+                dropped = False
+
+        def command_done(name, fut):
+            nonlocal busy
+            busy = False
+            if fut.exception():
+                say(f"{name} failed: {fut.exception()}")
+            else:
+                say(fut.result() or f"{name} done")
+
+        def run_command(name):
+            nonlocal busy
+            # Enter already closed the prompt, so there is nothing left to do for q
+            if name in ("", "q"):
+                return
+            if name == "help":
+                for cmd, (text, _) in commands.items():
+                    say(f"{cmd:<12} {text}")
+                say(f"{'q':<12} leave the prompt")
+                return
+            if name not in commands:
+                say(f"unknown command '{name}', press Tab to list commands")
+                return
+            if busy:
+                say("another command is still running")
+                return
+            busy = True
+            say(f"{name}...")
+            # commands may block (e.g. the power cycle delay), keep the console running meanwhile
+            fut = loop.run_in_executor(None, commands[name][1])
+            fut.add_done_callback(lambda f: command_done(name, f))
+
         def from_stdin():
+            nonlocal prompting
             data = os.read(stdin, 1024)
             if not data:
                 loop.remove_reader(stdin)
                 return
-            os.write(master, data)
+            while data:
+                if not prompting:
+                    data, ctrl_t, rest = data.partition(b"\x14")
+                    if data:
+                        os.write(master, data)
+                    if ctrl_t:
+                        prompting = True
+                        os.write(stdout, prompt.start())
+                    data = rest
+                    continue
+                out, status, data = prompt.feed(data)
+                os.write(stdout, out)
+                if status == "literal":
+                    os.write(master, b"\x14")
+                if status:
+                    leave_prompt()
+                if status == "enter":
+                    run_command(prompt.line.strip())
 
         def from_master():
+            nonlocal dropped
             try:
                 data = os.read(master, 4096)
             except (BlockingIOError, OSError):
                 data = b""
             if not data:
                 loop.remove_reader(master)
+                return
+            if prompting:
+                dropped |= len(held) + len(data) > held_limit
+                held.extend(data[: held_limit - len(held)])
                 return
             os.write(stdout, data)
 
@@ -1293,6 +1394,8 @@ class ClientSession:
             )
         finally:
             loop.remove_reader(stdin)
+            if prompting:
+                leave_prompt()
             from_master()  # flush the console program's last output
             loop.remove_reader(master)
             loop.remove_signal_handler(signal.SIGWINCH)

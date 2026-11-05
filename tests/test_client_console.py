@@ -45,11 +45,22 @@ SCRIPT = textwrap.dedent("""
     import sys
     from labgrid.remote.client import ClientSession
 
+    class Power:
+        state = False
+        def on(self): self.state = True
+        def off(self): self.state = False
+        def cycle(self): self.state = True
+        def get(self): return self.state
+
     class Session:
         _console_pty = ClientSession._console_pty
+        _console_commands = ClientSession._console_commands
+        power = Power()
+        def _get_power_driver(self, target, name=None):
+            return self.power
 
     async def main():
-        with Session()._console_pty(sys.argv[1:]) as (call, kwargs):
+        with Session()._console_pty(None, sys.argv[1:]) as (call, kwargs):
             p = await asyncio.create_subprocess_exec(*call, **kwargs)
             print("ready", flush=True)
             await p.wait()
@@ -58,13 +69,48 @@ SCRIPT = textwrap.dedent("""
 """)
 
 
-def test_console_pty():
+def test_console_pty_commands():
     with pexpect.spawn(sys.executable, ["-c", SCRIPT, "cat"], timeout=10) as spawn:
         spawn.expect("ready")
         spawn.send("hello\r")
         spawn.expect("hello")
+        # Tab completion and running a command
+        spawn.send("\x14power g\t")
+        spawn.expect("labgrid> power get")
+        spawn.send("\r")
+        spawn.expect(r"\[labgrid\] power is off")
+        spawn.send("\x14power on\r")
+        spawn.expect(r"\[labgrid\] power on done")
+        spawn.send("\x14power get\r")
+        spawn.expect(r"\[labgrid\] power is on")
+        spawn.send("\x14help\r")
+        spawn.expect(r"\[labgrid\] power cycle +switch power off and on again")
+        spawn.send("\x14nope\r")
+        spawn.expect(r"\[labgrid\] unknown command 'nope'")
+        # q leaves the prompt, then input goes to the target again
+        spawn.send("\x14q\r")
+        spawn.expect("labgrid> q\r\n")
+        spawn.send("world\r")
+        spawn.expect("world\r\nworld")
+        # Ctrl-T Ctrl-T sends a literal Ctrl-T, echoed back by the pty
+        spawn.send("\x14\x14")
+        spawn.expect_exact("labgrid> \r\n^T")
         # EOF through the pty ends cat
-        spawn.send("\x04")
+        spawn.send("\r\x04")
+        spawn.expect(pexpect.EOF)
+    assert spawn.exitstatus == 0
+
+
+def test_console_pty_hold_output():
+    with pexpect.spawn(sys.executable, ["-c", SCRIPT, "sh", "-c", "sleep 1; echo late; sleep 2"], timeout=10) as spawn:
+        spawn.expect("ready")
+        spawn.send("\x14")
+        spawn.expect("labgrid> ")
+        # output is held back while the prompt is open ...
+        assert spawn.expect(["late", pexpect.TIMEOUT], timeout=2) == 1
+        # ... and shown after leaving it
+        spawn.send("\x03")
+        spawn.expect("late")
         spawn.expect(pexpect.EOF)
     assert spawn.exitstatus == 0
 
